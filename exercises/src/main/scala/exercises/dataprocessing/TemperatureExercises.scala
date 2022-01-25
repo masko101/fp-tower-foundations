@@ -14,7 +14,7 @@ object TemperatureExercises {
   }
 
   def maxSampleByTemperature(samples: ParList[Sample]): Option[Sample] =
-    samples.partitions.flatMap(_.maxByOption(_.temperatureCelsius)).maxByOption(_.temperatureCelsius)
+    samples.parFoldMap(Option[Sample])(Monoid.maxSample)
 
   // c. Implement `averageTemperature` which finds the average temperature across all `Samples`.
   // `averageTemperature` should work as follow:
@@ -75,7 +75,7 @@ object TemperatureExercises {
   // Partition 2: List(a2, b2, c2, d2, e2, f2) ->    res2 (intermediate result of partition 2) - finalResult
   // Partition 3:                          Nil -> default (partition 3 is empty)               /
   def foldLeft[From, To](parList: ParList[From], default: To)(combine: (To, From) => To)(combineR: (To, To) => To): To =
-    parList.partitions.foldLeft(default)((a, i) => combineR(a, i.foldLeft(default)(combine)))
+    parList.foldLeft(default)(combine)(combineR)
 
   // e. Implement `monoFoldLeft`, a version of `foldLeft` that does not change the element type.
   // Then move `monoFoldLeft` inside  the class `ParList`.
@@ -86,8 +86,12 @@ object TemperatureExercises {
   // Partition 1: List(a1, b1, c1, d1, e1, f1) ->       x   (folded partition 1)  \
   // Partition 2: List(a2, b2, c2, d2, e2, f2) ->       y   (folded partition 2) - z (final result)
   // Partition 3:                          Nil -> default (partition 3 is empty)  /
-  def monoFoldLeft[A](parList: ParList[A], default: A)(combine: (A, A) => A): A =
-    parList.partitions.foldLeft(default)((a, i) => combine(a, i.foldLeft(default)(combine)))
+  def monoFoldLeft[A](parList: ParList[A], defaultV: A)(combineV: (A, A) => A): A =
+    parList.monoFoldLeft(new Monoid[A] {
+      override val default: A = defaultV
+
+      override def combine(x: A, y: A): A = combineV(x, y)
+    })
 
   // `summaryList` iterate 4 times over `samples`, one for each field.
   def summaryList(samples: List[Sample]): Summary =
@@ -132,10 +136,21 @@ object TemperatureExercises {
       size = samples.parFoldMap(_ => 1)(Monoid.sumInt)
     )
 
+  def summaryParArray(samples: ParArray[Sample]): Summary =
+    Summary(
+      min = samples.parFoldMap(s => Option(s))(Monoid.minSample),
+      max = samples.parFoldMap(s => Option(s))(Monoid.maxSample),
+      sum = samples.parFoldMap(_.temperatureFahrenheit)(Monoid.sumDouble),
+      size = samples.parFoldMap(_ => 1)(Monoid.sumInt)
+    )
+
   // Implement `summaryParListOnePass` using `parFoldMap` only ONCE.
   // Note: In `ParListTest.scala`, there is already a test checking that `summaryParListOnePass`
   // should return the same result as `summaryList`
   def summaryParListOnePass(samples: ParList[Sample]): Summary =
+    samples.parFoldMap(s => Summary(Option(s), Option(s), s.temperatureFahrenheit, 1))(Summary.summaryMonoid)
+
+  def summaryParListOnePassArray(samples: ParArray[Sample]): Summary =
     samples.parFoldMap(s => Summary(Option(s), Option(s), s.temperatureFahrenheit, 1))(Summary.summaryMonoid)
 
   def summaryReduceMap(samples: ParList[Sample]): Summary =
@@ -143,8 +158,34 @@ object TemperatureExercises {
       samples.reduceMap(s => SummarySemi(s, s, s.temperatureFahrenheit, 1))(SummarySemi.summarySemigroup)
     )
 
+  def summaryParReduceMapArray(samples: ParArray[Sample]): Summary =
+    Summary.fromSummary(
+      samples.parReduceMap(s => SummarySemi(s, s, s.temperatureFahrenheit, 1))(SummarySemi.summarySemigroup)
+    )
+
   def summaryParReduceMap(samples: ParList[Sample]): Summary =
     Summary.fromSummary(
       samples.parReduceMap(s => SummarySemi(s, s, s.temperatureFahrenheit, 1))(SummarySemi.summarySemigroup)
     )
+
+  def aggregateSummaryByCity(samples: ParList[Sample]) = aggregateSummary(s => s.city)(samples)
+
+  def aggregateSummary(by: Sample => String)(samples: ParList[Sample]): Map[String, SummarySemi] = {
+    samples.parFoldMap(sampleToSummaryMap(s => List(by(s))))(
+      Monoid.mergeMap[String, SummarySemi](SummarySemi.summarySemigroup)
+    )
+  }
+
+  def aggregateSummariesByCityRegionCountry(samples: ParList[Sample]) =
+    aggregateSummaries(s => List(s.city, s.region, s.country))(samples)
+
+  def aggregateSummaries(keyF: Sample => List[String])(samples: ParList[Sample]): Map[String, SummarySemi] = {
+    samples.parFoldMap(sampleToSummaryMap(keyF))(
+      Monoid.mergeMap[String, SummarySemi](SummarySemi.summarySemigroup)
+    )
+  }
+
+  private def sampleToSummaryMap(keyF: Sample => List[String])(s: Sample): Map[String, SummarySemi] = {
+    keyF(s).map(_ -> SummarySemi(s, s, s.temperatureFahrenheit, 1)).toMap
+  }
 }

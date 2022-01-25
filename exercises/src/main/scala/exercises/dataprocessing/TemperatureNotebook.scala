@@ -1,7 +1,8 @@
 package exercises.dataprocessing
 
+import exercises.dataprocessing.TemperatureExercises.{aggregateSummariesByCityRegionCountry, aggregateSummaryByCity}
 import exercises.dataprocessing.ThreadPoolUtil.fixedSizeExecutionContext
-import exercises.dataprocessing.TimeUtil.{bench, Labelled}
+import exercises.dataprocessing.TimeUtil.{bench, timeOne, Labelled}
 import kantan.csv._
 import kantan.csv.ops._
 
@@ -15,6 +16,7 @@ object TemperatureNotebook extends App {
 //  private val executorService: ExecutorService = Executors.newFixedThreadPool(8)
 //  implicit val executionContext                = ExecutionContext.fromExecutor(executorService)
   implicit val executionContext: ExecutionContext = fixedSizeExecutionContext(8);
+
   // !!!!  IMPORTANT !!!!
   // Download the dataset from https://www.dropbox.com/s/4pf6h2oxw4u7xsq/city_temperature.csv?dl=0
   // and place the csv file in the resource directory (exercises/src/main/resources)
@@ -28,21 +30,22 @@ object TemperatureNotebook extends App {
 
   val rows: List[Either[ReadError, Sample]] = reader.toList
 
-  val failures: List[ReadError] = rows.collect { case Left(error)   => error }
-  val samples: List[Sample]     = rows.collect { case Right(sample) => sample }
-
-  // we can also extract failures and successes in one go using `partitionMap`
-  // val (failures, successes) = rows.partitionMap(identity)
+  val (failures, samples) = timeOne("load data")(reader.toList.partitionMap(identity))
 
   println(s"Parsed ${samples.size} rows successfully and ${failures.size} rows failed ")
 
   // a. Implement `samples`, a `ParList` containing all the `Samples` in `successes`.
   // Partition `parSamples` so that it contains 10 partitions of roughly equal size.
   // Note: Check `ParList` companion object
-  val partitionSize: Int               = math.ceil(samples.size.toDouble / 10).toInt
-  lazy val parSamples: ParList[Sample] = ParList.byPartitionSize(partitionSize, samples)
+  val partitionSize: Int                     = math.ceil(samples.size.toDouble / 10).toInt
+  lazy val parSamples: ParList[Sample]       = ParList.byPartitionSize(partitionSize, samples)
+  lazy val parSamplesArray: ParArray[Sample] = ParArray.byPartitionSize(partitionSize, samples)
 
   parSamples.partitions.zipWithIndex.foreach { case (p, i) => println(s"Partition $i has size ${p.size}") }
+
+  println(
+    s"Types ${parSamples.getClass.getSimpleName}  ${parSamplesArray.getClass.getSimpleName}  ${Monoid.maxSample} ${this.getClass.getSimpleName}"
+  )
 
   // b. Implement `minSampleByTemperature` in TemperatureExercises
   lazy val coldestSample: Option[Sample] =
@@ -59,6 +62,10 @@ object TemperatureNotebook extends App {
     parSamples.parFoldMap(s => (s.temperatureFahrenheit, 1))(Monoid.sumAndSize)
   println(s"The average is ${sum / size} - $sum - $size")
 
+  private val coldest =
+    parSamples.parFoldMap(s => (s.temperatureFahrenheit, 1))(Monoid.sumAndSize)
+  println(s"The 5 coldest samples are  is $coldest")
+
   //////////////////////
   // Benchmark ParList
   //////////////////////
@@ -68,7 +75,33 @@ object TemperatureNotebook extends App {
   // * List map + sum
   // * TODO ParList foldMap
   // * TODO ParList parFoldMap
-//  bench("sum", iterations = 200, warmUpIterations = 40)(
+  bench("sum", 100, 10)(
+    Labelled("List foldLeft", () => samples.foldLeft(0.0)((state, sample) => state + sample.temperatureFahrenheit)),
+    Labelled("List map + sum", () => samples.map(_.temperatureFahrenheit).sum),
+    Labelled("ParList foldMap", () => parSamples.foldMap(_.temperatureFahrenheit)(Monoid.sumNumber)),
+    Labelled("ParList parFoldMap", () => parSamples.parFoldMap(_.temperatureFahrenheit)(Monoid.sumNumber)),
+//    Labelled("ParList parFoldMapUnordered",
+//      () => parSamples.parFoldMapUnordered(_.temperatureFahrenheit)(Monoid.sumNumber)),
+    Labelled("ParArray parFoldMap", () => parSamplesArray.parFoldMap(_.temperatureFahrenheit)(Monoid.sumNumber)),
+    Labelled("Array foldLeft",
+             () => parSamplesArray.data.foldLeft(0.0)((state, sample) => state + sample.temperatureFahrenheit))
+  )
+
+  bench("min", 100, 10)(
+    Labelled("ParList minBy", () => parSamples.minByOption(_.temperatureFahrenheit)),
+    Labelled("ParList parFoldMap", () => parSamples.parFoldMap(Option(_))(Monoid.minByOption(_.temperatureFahrenheit))),
+    Labelled("List minByOption", () => samples.minByOption(_.temperatureFahrenheit))
+  )
+
+//  bench("summary", 200, 40)(
+//    Labelled("List 4 iterations", () => TemperatureExercises.summaryList(samples)),
+//    Labelled("List 1 iteration", () => TemperatureExercises.summaryListOnePass(samples)),
+//    Labelled("ParList 4 iterations", () => TemperatureExercises.summaryParList(parSamples)),
+//    Labelled("ParList 1 iteration foldMap", () => TemperatureExercises.summaryParListOnePass(parSamples)),
+//    Labelled("ParList 1 iteration reduceMap", () => TemperatureExercises.summaryParReduceMap(parSamples))
+//  )
+
+  //  bench("sum", iterations = 200, warmUpIterations = 40)(
 //    Labelled("List foldLeft", () => samples.foldLeft(0.0)((state, sample) => state + sample.temperatureFahrenheit)),
 //    Labelled("List map + sum", () => samples.map(_.temperatureFahrenheit).sum),
 //    Labelled("ParList foldMap", () => parSamples.foldMap(_.temperatureFahrenheit)(Monoid.sumDouble)),
@@ -80,22 +113,29 @@ object TemperatureNotebook extends App {
   // * List with 1 iterations
   // * TODO ParList with 4 iterations
   // * TODO ParList with 1 iteration
-  bench("summary", iterations = 150, warmUpIterations = 20)(
+  bench("summary", iterations = 400, warmUpIterations = 40)(
     Labelled("List 4 iterations", () => TemperatureExercises.summaryList(samples)),
     Labelled("List 1 iteration", () => TemperatureExercises.summaryListOnePass(samples)),
     Labelled("ParList 4 iterations", () => TemperatureExercises.summaryParList(parSamples)),
-    Labelled("ParList 1 iteration", () => TemperatureExercises.summaryParListOnePass(parSamples)),
-    Labelled("ParList reduceMap 1 iterations", () => TemperatureExercises.summaryReduceMap(parSamples)),
-    Labelled("ParList parReduceMap iteration", () => TemperatureExercises.summaryParReduceMap(parSamples))
+    Labelled("ParList 1 iteration foldMap", () => TemperatureExercises.summaryParListOnePass(parSamples)),
+    Labelled("ParArray 1 iteration foldMap", () => TemperatureExercises.summaryParListOnePassArray(parSamplesArray)),
+    Labelled("ParList 1 iteration reduceMap", () => TemperatureExercises.summaryReduceMap(parSamples)),
+    Labelled("ParArray 1 iteration reduceMap", () => TemperatureExercises.summaryParReduceMapArray(parSamplesArray))
   )
+
+//  aggregateSummaryByCity(parSamples).foreach { case (city, summary) => println(s"City: $city, Summary: $summary") }
+//
+//  aggregateSummariesByCityRegionCountry(parSamples).foreach {
+//    case (city, summary) => println(s"Label: $city, Summary: $summary")
+//  }
 
   //////////////////////////////////////////////
   // Bonus question (not covered by the video)
   //////////////////////////////////////////////
 
-  // Generalise Monoid sum to accept all types of number (Hint: check `Numeric`, e.g. Numeric[Int], `Numeric[Double]`)
+  // Done - Generalise Monoid sum to accept all types of number (Hint: check `Numeric`, e.g. Numeric[Int], `Numeric[Double]`)
 
-  // Generalise Monoid minBy/maxBy from a hard-coded `Sample => Double` to a generic `From => To`
+  // Done - Generalise Monoid minBy/maxBy from a hard-coded `Sample => Double` to a generic `From => To`
   // Is it possible to write such a Monoid for any type `From` and `To` or do you need additional constraints?
 
   // What would happen if we aggregate the dataset by city and country and Mexico is part of the dataset?
@@ -113,7 +153,7 @@ object TemperatureNotebook extends App {
   // Ideas to improve `ParList` performance
   //////////////////////////////////////////////
 
-  // 1. When we defined `Summary`, we made `min` and `max` an `Option` because the `ParList`
+  // 1. Done -  When we defined `Summary`, we made `min` and `max` an `Option` because the `ParList`
   //   can be empty. However, it is quite expensive because we wrap and unwrap an `Option` for
   //   every value in the dataset. Instead we could check if the `ParList` is empty at the beginning,
   //   if it is we return None, otherwise we can `reduce` the `ParList` without `Option`.

@@ -1,9 +1,10 @@
 package exercises.dataprocessing
 
-import java.time.LocalDate
 import org.scalacheck.{Arbitrary, Gen}
 
-import scala.concurrent.ExecutionContext
+import java.time.LocalDate
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
+import scala.reflect.ClassTag
 
 trait ParListTestInstances {
   val sampleGen: Gen[Sample] =
@@ -34,17 +35,43 @@ trait ParListTestInstances {
     )
   implicit val sampleArb: Arbitrary[Sample] = Arbitrary(sampleGen)
 
-  implicit def parListArb[A](implicit arbA: Arbitrary[A]): Arbitrary[ParList[A]] =
+  implicit def parListArb[A](implicit arbA: Arbitrary[A], classTag: ClassTag[A]): Arbitrary[ParList[A]] =
     Arbitrary(
-      parListGen(arbA)
+      parListGen
     )
 
-  def parListGen[A](implicit arbA: Arbitrary[A]): Gen[ParList[A]] = {
-    Gen
-      .listOf(Gen.listOf(arbA.arbitrary))
-      .map(partitions => ParList(partitions)(ExecutionContext.global))
+  def parListGen[A: ClassTag](implicit arbA: Arbitrary[A]): Gen[ParList[A]] = {
+    implicit val global: ExecutionContextExecutor = ExecutionContext.global
+    for {
+      l     <- Gen.listOf(arbA.arbitrary)
+      pSize <- Gen.choose(1, 10)
+    } yield {
+      ParList.byPartitionSize(pSize, l)
+    }
+//For list impl
+    //    Gen
+//      .listOf(Gen.listOf(arbA.arbitrary))
+//      .map(partitions => ParList(partitions)(ExecutionContext.global))
   }
 
+  implicit def parArrayArb[A](implicit arbA: Arbitrary[A], classTag: ClassTag[A]): Arbitrary[ParArray[A]] =
+    Arbitrary(
+      parArrayGen
+    )
+
+  def parArrayGen[A: ClassTag](implicit arbA: Arbitrary[A]): Gen[ParArray[A]] = {
+    implicit val global: ExecutionContextExecutor = ExecutionContext.global
+    for {
+      l     <- Gen.listOf(arbA.arbitrary)
+      pSize <- Gen.choose(1, 10)
+    } yield {
+      ParArray(l.toArray, pSize)
+    }
+    //For list impl
+    //    Gen
+    //      .listOf(Gen.listOf(arbA.arbitrary))
+    //      .map(partitions => ParList(partitions)(ExecutionContext.global))
+  }
   val summaryGen: Gen[Summary] =
     for {
       sample1 <- Arbitrary.arbitrary[Sample]

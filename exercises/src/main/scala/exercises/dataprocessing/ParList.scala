@@ -13,6 +13,21 @@ case class ParList[A](partitions: List[List[A]])(implicit executionContext: Exec
   def toList: List[A] = partitions.flatten
   def size: Int       = parFoldMap(_ => 1)(Monoid.sumInt)
 
+  def minByOption[To: Ordering](zoom: A => To): Option[A] = {
+    val semi = Semigroup.minBy(zoom)
+    def reducePartition(as: List[A]): A =
+      as match {
+        case head :: rest =>
+          rest.foldLeft(head)((to, a) => {
+            semi.combine(to, a)
+          })
+      }
+    partitions
+      .filter(_.nonEmpty)
+      .map(a => reducePartition(a))
+      .reduceLeftOption(semi.combine)
+  }
+
   def map[To](f: A => To): ParList[To] = this.copy(partitions.map(_.map(f)))
 
   def foldLeft[To](default: To)(combine: (To, A) => To)(combineR: (To, To) => To): To =
@@ -21,8 +36,8 @@ case class ParList[A](partitions: List[List[A]])(implicit executionContext: Exec
   // Only works correctly when the default is such that combine(default, x) is equal to x
   def monoFoldLeft(mp: Monoid[A]): A =
     partitions.foldLeft(mp.default)((a, i) => mp.combine(a, i.foldLeft(mp.default)(mp.combine)))
-//  def monoFoldLeft(default: A)(combine: (A, A) => A): A =
-//    partitions.foldLeft(default)((a, i) => combine(a, i.foldLeft(default)(combine)))
+  //  def monoFoldLeft(defhttps://eu-central-1.console.aws.amazon.com/cloudwatch/home?region=eu-central-1#ault: A)(combine: (A, A) => A): A =
+  //    partitions.foldLeft(default)((a, i) => combine(a, i.foldLeft(default)(combine)))
 
   def foldMap[To](f: A => To)(monoid: Monoid[To]): To =
     partitions.foldLeft(monoid.default)((pto, pa) =>
@@ -30,19 +45,19 @@ case class ParList[A](partitions: List[List[A]])(implicit executionContext: Exec
     )
 
   def parFoldMap[To](f: A => To)(monoid: Monoid[To]): To = {
-//    val eventualTo = partitions.foldLeft(Future(monoid.default)(ec))((futurePto, pa) =>
-//      futurePto.flatMap(pto =>
-//        Future {
-//          println(s"Stared ${Thread.currentThread().getName}")
-//          val res = monoid.combine(pto, pa.foldLeft(monoid.default)((to, a) => monoid.combine(to, f(a))))
-//          println(s"Finished ${Thread.currentThread().getName}")
-//          res
-//        }(ec)
-//      )(ec)
-//    )
-//    Await.result(eventualTo, 1.minutes)
+    //    val eventualTo = partitions.foldLeft(Future(monoid.default)(ec))((futurePto, pa) =>
+    //      futurePto.flatMap(pto =>
+    //        Future {
+    //          println(s"Stared ${Thread.currentThread().getName}")
+    //          val res = monoid.combine(pto, pa.foldLeft(monoid.default)((to, a) => monoid.combine(to, f(a))))
+    //          println(s"Finished ${Thread.currentThread().getName}")
+    //          res
+    //        }(ec)
+    //      )(ec)
+    //    )
+    //    Await.result(eventualTo, 1.minutes)
 
-//    partitions.reduceLeftOption()
+    //    partitions.reduceLeftOption()
     partitions
       .map(pa =>
         Future {

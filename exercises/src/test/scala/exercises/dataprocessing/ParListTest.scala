@@ -43,9 +43,13 @@ class ParListTest extends AnyFunSuite with ScalaCheckDrivenPropertyChecks with P
     forAll { (samples: List[Sample]) =>
       val parSamples            = ParList.byPartitionSize(3, samples)
       val coldestFromPartOption = minSampleByTemperature(parSamples)
-      val coldestOption         = minSampleByTemperature(ParList(parSamples.partitions.flatten))
+      val coldestOption         = minSampleByTemperature(getParList1(parSamples))
       assert(coldestFromPartOption == coldestOption)
     }
+  }
+
+  private def getParList1[A](parSamples: ParList[A]): ParList[A] = {
+    ParList.byPartitionSize(1, parSamples.partitions.flatten)
   }
 
   test("averageTemperature example") {
@@ -67,8 +71,8 @@ class ParListTest extends AnyFunSuite with ScalaCheckDrivenPropertyChecks with P
     forAll { (samples: List[Sample]) =>
       val parSamples    = ParList.byPartitionSize(3, samples)
       val average       = averageTemperature(parSamples)
-      val coldestOption = minSampleByTemperature(ParList(parSamples.partitions.flatten)).map(_.temperatureFahrenheit)
-      val hottestOption = maxSampleByTemperature(ParList(parSamples.partitions.flatten)).map(_.temperatureFahrenheit)
+      val coldestOption = minSampleByTemperature(getParList1(parSamples)).map(_.temperatureFahrenheit)
+      val hottestOption = maxSampleByTemperature(getParList1(parSamples)).map(_.temperatureFahrenheit)
       assert(
         (average.isEmpty && coldestOption.isEmpty && hottestOption.isEmpty) ||
           (average.getOrElse(0d) >= coldestOption.getOrElse(0d) && average.getOrElse(0d) <= hottestOption.getOrElse(0d))
@@ -78,7 +82,7 @@ class ParListTest extends AnyFunSuite with ScalaCheckDrivenPropertyChecks with P
 
 //  Gen.function1()
   test("monoFoldLeft sum") {
-    forAll { (nums: ParList[Int]) => assert(nums.monoFoldLeft(Monoid.sumInt) == nums.partitions.map(_.sum).sum) }
+    forAll { (nums: ParList[Int]) => assert(nums.monoFoldLeft(Monoid.sumInt) == nums.partitions.flatten.sum) }
   }
 
   test("foldMap is consistent with map followed by monoFoldLeft") {

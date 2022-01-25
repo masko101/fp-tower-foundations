@@ -25,11 +25,10 @@ object TemperatureAnswers {
 
   def averageTemperatureV2(samples: ParList[Sample]): Option[Double] = {
     val (length, sum) = samples.partitions
-      .map(
-        partition =>
-          partition.foldLeft((0, 0.0)) {
-            case ((size, total), sample) =>
-              (size + 1, total + sample.temperatureFahrenheit)
+      .map(partition =>
+        partition.foldLeft((0, 0.0)) {
+          case ((size, total), sample) =>
+            (size + 1, total + sample.temperatureFahrenheit)
         }
       )
       .foldLeft((0, 0.0)) {
@@ -55,21 +54,18 @@ object TemperatureAnswers {
         sum = 0.0,
         size = 0
       )
-    )(
-      (state, sample) =>
-        SummaryV1(
-          min = state.min.fold(Some(sample))(
-            current =>
-              if (current.temperatureFahrenheit <= sample.temperatureFahrenheit) Some(current)
-              else Some(sample)
-          ),
-          max = state.max.fold(Some(sample))(
-            current =>
-              if (current.temperatureFahrenheit >= sample.temperatureFahrenheit) Some(current)
-              else Some(sample)
-          ),
-          sum = state.sum + sample.temperatureFahrenheit,
-          size = state.size + 1
+    )((state, sample) =>
+      SummaryV1(
+        min = state.min.fold(Some(sample))(current =>
+          if (current.temperatureFahrenheit <= sample.temperatureFahrenheit) Some(current)
+          else Some(sample)
+        ),
+        max = state.max.fold(Some(sample))(current =>
+          if (current.temperatureFahrenheit >= sample.temperatureFahrenheit) Some(current)
+          else Some(sample)
+        ),
+        sum = state.sum + sample.temperatureFahrenheit,
+        size = state.size + 1
       )
     )
 
@@ -84,7 +80,12 @@ object TemperatureAnswers {
   def summaryParListOnePassFoldMap(samples: ParList[Sample]): SummaryV1 =
     samples.parFoldMap(SummaryV1.one)(SummaryV1.monoid)
 
+  def summaryParListOnePassFoldMapArray(samples: ParArray[Sample]): SummaryV1 =
+    samples.parFoldMap(SummaryV1.one)(SummaryV1.monoid)
+
   def summaryParListOnePassReduceMap(samples: ParList[Sample]): SummaryV1 =
     SummaryV1.fromSummary(samples.parReduceMap(Summary.one)(Summary.semigroup))
 
+  def summaryParListOnePassReduceMapArray(samples: ParArray[Sample]): SummaryV1 =
+    SummaryV1.fromSummary(samples.parReduceMap(Summary.one)(Summary.semigroup))
 }

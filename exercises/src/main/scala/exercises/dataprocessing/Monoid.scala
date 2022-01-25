@@ -1,5 +1,7 @@
 package exercises.dataprocessing
 
+import scala.collection.mutable
+
 trait Monoid[A] {
   val default: A
   def combine(x: A, y: A): A
@@ -60,18 +62,32 @@ object Monoid {
         }
     }
 
-  val minSample: Monoid[Option[Sample]] =
-    compareSample((x, y) => if (x.temperatureFahrenheit < y.temperatureFahrenheit) x else y)
+  def minByOption[From, To: Ordering](f: From => To): Monoid[Option[From]] = compare(Semigroup.minBy(f).combine)
 
-  val maxSample: Monoid[Option[Sample]] =
-    compareSample((x, y) => if (x.temperatureFahrenheit > y.temperatureFahrenheit) x else y)
+  def maxByOption[From, To: Ordering](f: From => To): Monoid[Option[From]] = compare(Semigroup.maxBy(f).combine)
 
-  val minSummary: Monoid[Option[Sample]] =
-    compareSample((x, y) => if (x.temperatureFahrenheit < y.temperatureFahrenheit) x else y)
+  val minSample: Monoid[Option[Sample]] = minByOption((s: Sample) => s.temperatureFahrenheit)
 
-  val maxSummary: Monoid[Option[Sample]] =
-    compareSample((x, y) => if (x.temperatureFahrenheit > y.temperatureFahrenheit) x else y)
+  val maxSample: Monoid[Option[Sample]] = maxByOption((s: Sample) => s.temperatureFahrenheit)
 
   val sumAndSize: Monoid[(Double, Int)] = zip(sumDouble, sumInt)
 
+  def mergeMap[Key, T](semigroup: Semigroup[T]): Monoid[Map[Key, T]] = new Monoid[Map[Key, T]] {
+    override val default: Map[Key, T] = Map.empty[Key, T]
+    override def combine(x: Map[Key, T], y: Map[Key, T]): Map[Key, T] =
+      y.foldLeft(x)((x, ye) =>
+        x.updatedWith(ye._1) {
+          case Some(xe) => Some(semigroup.combine(xe, ye._2))
+          case None     => Some(ye._2)
+        }
+      )
+
+  }
+
+//  def mergeMapMutable[Key, T](semigroup: Semigroup[T]): Monoid[mutable.Map[Key, T]] = new Monoid[mutable.Map[Key, T]] {
+//    override val default: mutable.Map[Key, T] = mutable.Map.empty[Key, T]
+//    override def combine(x: mutable.Map[Key, T], y: mutable.Map[Key, T]): mutable.Map[Key, T] =
+//      y.foldLeft(x)((x, ye) => x.uupdatedWith(ye._1)(xe => Some(semigroup.combine(xe.getOrElse(default), ye._2))))
+//
+//  }
 }

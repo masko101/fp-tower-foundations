@@ -57,28 +57,32 @@ object TemperatureNotebookAnswers extends App {
     Labelled("ParArray parFoldMap",
              () => parSamplesArray.parFoldMap(_.temperatureFahrenheit)(CommutativeMonoid.sumNumeric)),
     Labelled("Array foldLeft",
-             () => samplesArray.foldLeft(0.0)((state, sample) => state + sample.temperatureFahrenheit)),
+             () => samplesArray.foldLeft(0.0)((state, sample) => state + sample.temperatureFahrenheit))
   )
 
   bench("min")(
     Labelled("ParList minBy", () => parSamples.minBy(_.temperatureFahrenheit)),
     Labelled("ParList parFoldMap", () => parSamples.parFoldMap(Option(_))(Monoid.minByOption(_.temperatureFahrenheit))),
-    Labelled("List minByOption", () => samples.minByOption(_.temperatureFahrenheit)),
+    Labelled("List minByOption", () => samples.minByOption(_.temperatureFahrenheit))
   )
 
-  bench("summary")(
+  bench("summary", 400, 40)(
     Labelled("List 4 iterations", () => TemperatureAnswers.summaryList(samples)),
     Labelled("List 1 iteration", () => TemperatureAnswers.summaryListOnePass(samples)),
     Labelled("ParList 4 iterations", () => TemperatureAnswers.summaryParList(parSamples)),
     Labelled("ParList 1 iteration foldMap", () => TemperatureAnswers.summaryParListOnePassFoldMap(parSamples)),
+    Labelled("ParArray 1 iteration foldMap",
+             () => TemperatureAnswers.summaryParListOnePassFoldMapArray(parSamplesArray)),
     Labelled("ParList 1 iteration reduceMap", () => TemperatureAnswers.summaryParListOnePassReduceMap(parSamples)),
+    Labelled("ParArray 1 iteration reduceMap",
+             () => TemperatureAnswers.summaryParListOnePassReduceMapArray(parSamplesArray))
   )
 
   bench("aggregatePerLabel")(
     Labelled("city", () => aggregatePerLabel(parSamples)(s => List(s.city))),
     Labelled("country", () => aggregatePerLabel(parSamples)(s => List(s.country))),
     Labelled("Bordeaux", () => aggregatePerLabel(parSamples)(s => List(s.city).filter(_ == "Bordeaux"))),
-    Labelled("city, country, region", () => aggregatePerLabel(parSamples)(s => List(s.city, s.country, s.region))),
+    Labelled("city, country, region", () => aggregatePerLabel(parSamples)(s => List(s.city, s.country, s.region)))
   )
 
   def aggregatePerLabel[Label](parList: ParList[Sample])(labels: Sample => List[Label]): Map[Label, Summary] = {
