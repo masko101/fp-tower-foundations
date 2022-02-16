@@ -1,6 +1,5 @@
 package exercises.dataprocessing
 
-import exercises.dataprocessing.TemperatureExercises.{aggregateSummariesByCityRegionCountry, aggregateSummaryByCity}
 import exercises.dataprocessing.ThreadPoolUtil.fixedSizeExecutionContext
 import exercises.dataprocessing.TimeUtil.{bench, timeOne, Labelled}
 import kantan.csv._
