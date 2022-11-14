@@ -2,8 +2,8 @@ package exercises.action.fp.console
 
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-
 import exercises.action.fp.IO
+import exercises.action.fp.console.UserCreationService.parseDateOfBirth
 
 import scala.util.{Failure, Success, Try}
 
@@ -38,18 +38,27 @@ class UserCreationService(console: Console, clock: Clock) {
   // instead of executing each `IO` one after another using `unsafeRun`.
   // For example, try to use `andThen`.
   // If it doesn't work investigate the methods `map` and `flatMap` on the `IO` trait.
-  val readDateOfBirth: IO[LocalDate] =
-    writeLine("What's your date of birth? [dd-mm-yyyy]").andThen(readLine).flatMap(parseDateOfBirth)
+  val readDateOfBirth: IO[LocalDate] = {
+    val printError = writeLine("""Incorrect format, for example enter "18-03-2001" for 18th of March 2001""")
+    for {
+      _    <- writeLine("What's your date of birth? [dd-mm-yyyy]")
+      line <- readLine
+      dob  <- parseDateOfBirth(line).onError(_ => printError)
+    } yield dob
+  }
 
   // 3. Refactor `readSubscribeToMailingList` and `readUser` using the same techniques as `readDateOfBirth`.
   val readSubscribeToMailingList: IO[Boolean] =
-    writeLine("Would you like to subscribe to our mailing list? [Y/N]").andThen(readLine).flatMap(parseLineToBoolean)
+    writeLine("Would you like to subscribe to our mailing list? [Y/N]")
+      .andThen(readLine)
+      .flatMap(parseLineToBoolean)
+      .onError(_ => writeLine("""Incorrect format, enter "Y" for Yes or "N" for "No""""))
 
   val readUser: IO[User] =
     for {
       name        <- readName
-      dateOfBirth <- readDateOfBirth
-      subscribed  <- readSubscribeToMailingList
+      dateOfBirth <- readDateOfBirth.retry(3)
+      subscribed  <- readSubscribeToMailingList.retry(3)
       now         <- clock.now
       user = User(name, dateOfBirth, subscribed, now)
       _ <- writeLine(s"User is $user")

@@ -21,10 +21,7 @@ trait IO[A] {
   // prints "Fetching user", fetches user 1234 from db and returns it.
   // Note: There is a test for `andThen` in `exercises.action.fp.IOTest`.
   def andThen[Other](other: IO[Other]): IO[Other] = {
-    IO {
-      unsafeRun()
-      other.unsafeRun()
-    }
+    flatMap(_ => other)
   }
 
   // Popular alias for `andThen` (cat-effect, Monix, ZIO).
@@ -45,7 +42,7 @@ trait IO[A] {
   // Note: `callback` is expected to be an FP function (total, deterministic, no action).
   //       Use `flatMap` if `callBack` is not an FP function.
   def map[Next](callBack: A => Next): IO[Next] =
-    IO { callBack(this.unsafeRun()) }
+    flatMap(a => IO(callBack(a)))
 
   // Runs the current action (`this`), if it succeeds passes the result to `callback` and
   // runs the second action.
@@ -71,7 +68,7 @@ trait IO[A] {
   // IO(throw new Exception("Boom!")).onError(logError).unsafeRun()
   // prints "Got an error: Boom!" and throws new Exception("Boom!")
   def onError[Other](cleanup: Throwable => IO[Other]): IO[A] =
-    Try(this.unsafeRun()).fold(c => cleanup(c), a => IO(a))
+    IO { Try(this.unsafeRun()).fold({ c => cleanup(c).unsafeRun(); throw c }, a => a) }
 
   // Retries this action until either:
   // * It succeeds.
@@ -87,8 +84,20 @@ trait IO[A] {
   // Returns "Hello" because `action` fails twice and then succeeds when counter reaches 3.
   // Note: `maxAttempt` must be greater than 0, otherwise the `IO` should fail.
   // Note: `retry` is a no-operation when `maxAttempt` is equal to 1.
-  def retry(maxAttempt: Int): IO[A] =
-    ???
+  def retry(maxAttempt: Int): IO[A] = {
+    def attempt(maxAttempt: Int): A = {
+      if (maxAttempt > 1)
+        Try(this.unsafeRun()).fold(_ => attempt(maxAttempt - 1), a => a)
+      else
+        this.unsafeRun()
+    }
+
+    IO {
+      require(maxAttempt > 0, "Max attempts greater than 0")
+      attempt(maxAttempt)
+    }
+
+  }
 
   // Checks if the current IO is a failure or a success.
   // For example,
@@ -98,7 +107,7 @@ trait IO[A] {
   // 1. Success(User(1234, "Bob", ...)) if `action` was successful or
   // 2. Failure(new Exception("User 1234 not found")) if `action` throws an exception
   def attempt: IO[Try[A]] =
-    ???
+    IO(Try(this.unsafeRun()))
 
   // If the current IO is a success, do nothing.
   // If the current IO is a failure, execute `callback` and keep its result.
