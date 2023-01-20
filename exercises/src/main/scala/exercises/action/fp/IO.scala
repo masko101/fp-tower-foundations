@@ -2,15 +2,23 @@ package exercises.action.fp
 
 import java.util.concurrent.CountDownLatch
 import scala.annotation.tailrec
-import scala.concurrent.duration.{Duration, FiniteDuration}
+import scala.concurrent.duration.{Duration, DurationInt, FiniteDuration}
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success, Try}
 
 trait IO[A] {
 
+  def unsafeRunAsync(callback: Try[A] => Unit): Unit
+
   // Executes the action.
   // This is the ONLY abstract method of the `IO` trait.
-  def unsafeRun(): A
+  def unsafeRun(): A = {
+    var res: Option[Try[A]] = None
+    val latch               = new CountDownLatch(1)
+    unsafeRunAsync { ta => res = Some(ta); latch.countDown() }
+    latch.await()
+    res.get.get
+  }
 
   // Runs the current IO (`this`), discards its result and runs the second IO (`other`).
   // For example,
@@ -53,8 +61,14 @@ trait IO[A] {
   // action.unsafeRun()
   // Fetches the user with id 1234 from the database and send them an email using the email
   // address found in the database.
-  def flatMap[Next](callback: A => IO[Next]): IO[Next] =
-    IO { callback(this.unsafeRun()).unsafeRun() }
+  def flatMap[Next](next: A => IO[Next]): IO[Next] = {
+    IO.async { cb =>
+      unsafeRunAsync {
+        case Failure(exception) => cb(Failure(exception))
+        case Success(res)       => next(res).unsafeRunAsync(cb)
+      }
+    }
+  }
 
   // Runs the current action, if it fails it executes `cleanup` and rethrows the original error.
   // If the current action is a success, it will return the result.
@@ -106,8 +120,12 @@ trait IO[A] {
   // returns either:
   // 1. Success(User(1234, "Bob", ...)) if `action` was successful or
   // 2. Failure(new Exception("User 1234 not found")) if `action` throws an exception
-  def attempt: IO[Try[A]] =
-    IO(Try(this.unsafeRun()))
+  def attempt(ec: ExecutionContext): IO[Try[A]] =
+    IO.async { cb =>
+      val promise: Promise[A] = Promise()
+      this.unsafeRunAsync(tryA => promise.complete(tryA))
+      promise.future.onComplete(a => cb(Try(a)))(ec)
+    }
 
   // If the current IO is a success, do nothing.
   // If the current IO is a failure, execute `callback` and keep its result.
@@ -116,8 +134,11 @@ trait IO[A] {
   // val action: IO[Unit] = closeAccount(user.id).handleErrorWith(e =>
   //   logError(e).andThen(emailClient.send(user.email, "Sorry something went wrong"))
   // )
-  def handleErrorWith(callback: Throwable => IO[A]): IO[A] =
-    ???
+  def handleErrorWith(callback: Throwable => IO[A])(ec: ExecutionContext): IO[A] =
+    attempt(ec).flatMap {
+      case Success(value)     => IO(value)
+      case Failure(exception) => callback(exception)
+    }
 
   //////////////////////////////////////////////
   // Concurrent IO
@@ -134,7 +155,13 @@ trait IO[A] {
   // Runs both the current IO and `other` concurrently,
   // then combine their results into a tuple
   def parZip[Other](other: IO[Other])(ec: ExecutionContext): IO[(A, Other)] =
-    ???
+    IO.async { cb =>
+      val promiseA: Promise[A]         = Promise()
+      val promiseOther: Promise[Other] = Promise()
+      ec.execute(() => this.unsafeRunAsync(tryA => promiseA.complete(tryA)))
+      ec.execute(() => other.unsafeRunAsync(tryOther => promiseOther.complete(tryOther)))
+      promiseA.future.zip(promiseOther.future).onComplete(a => cb(a))(ec)
+    }
 
 }
 
@@ -143,10 +170,14 @@ object IO {
   // val greeting: IO[Unit] = IO { println("Hello") }
   // greeting.unsafeRun()
   // prints "Hello"
+  def async[A](onComplete: (Try[A] => Unit) => Unit): IO[A] =
+    (callback: Try[A] => Unit) => onComplete(callback)
+
   def apply[A](action: => A): IO[A] =
-    new IO[A] {
-      def unsafeRun(): A = action
-    }
+    async { callback => callback(Try(action)) }
+
+  def dispatch[A](action: => A)(ec: ExecutionContext): IO[A] =
+    async(callback => ec.execute(() => callback(Try(action))))
 
   // Construct an IO which throws `error` everytime it is called.
   def fail[A](error: Throwable): IO[A] =
@@ -172,7 +203,7 @@ object IO {
   // If no error occurs, it returns the users in the same order:
   // List(User(1111, ...), User(2222, ...), User(3333, ...))
   def sequence[A](actions: List[IO[A]]): IO[List[A]] =
-    ???
+    actions.foldLeft(IO(List.empty[A]))((facc, fa) => facc.flatMap(acc => fa.map(a => acc :+ a)))
 
   // `traverse` is a shortcut for `map` followed by `sequence`, similar to how
   // `flatMap`  is a shortcut for `map` followed by `flatten`
@@ -196,7 +227,7 @@ object IO {
   // List(User(1111, ...), User(2222, ...), User(3333, ...))
   // Note: You may want to use `parZip` to implement `parSequence`.
   def parSequence[A](actions: List[IO[A]])(ec: ExecutionContext): IO[List[A]] =
-    ???
+    actions.foldLeft(IO(List.empty[A]))((fac, fa) => fac.parZip(fa)(ec).map(t => t._1 :+ t._2))
 
   // `parTraverse` is a shortcut for `map` followed by `parSequence`, similar to how
   // `flatMap`     is a shortcut for `map` followed by `flatten`

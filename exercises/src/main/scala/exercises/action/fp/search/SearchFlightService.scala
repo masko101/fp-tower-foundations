@@ -4,7 +4,8 @@ import java.time.LocalDate
 import exercises.action.fp.IO
 
 import scala.annotation.tailrec
-import scala.concurrent.ExecutionContext
+import scala.concurrent.ExecutionContext.global
+import scala.concurrent.{ExecutionContext}
 import scala.concurrent.duration._
 
 // This represent the main API of Lambda Corp.
@@ -14,6 +15,8 @@ trait SearchFlightService {
 }
 
 object SearchFlightService {
+
+  implicit val ec: ExecutionContext = scala.concurrent.ExecutionContext.global
 
   // 1. Implement `fromTwoClients` which creates a `SearchFlightService` by
   // combining the results from two `SearchFlightClient`.
@@ -26,8 +29,11 @@ object SearchFlightService {
   def fromTwoClients(client1: SearchFlightClient, client2: SearchFlightClient): SearchFlightService =
     new SearchFlightService {
       def search(from: Airport, to: Airport, date: LocalDate): IO[SearchResult] =
-        ???
-
+        client1
+          .search(from, to, LocalDate.now())
+          .handleErrorWith(_ => IO(List.empty[Flight]))(ec)
+          .parZip(client2.search(from, to, LocalDate.now()).handleErrorWith(_ => IO(List.empty[Flight]))(ec))(ec)
+          .map(t => SearchResult(t._1 ++ t._2))
     }
 
   // 2. Several clients can return data for the same flight. For example, if we combine data
@@ -47,7 +53,9 @@ object SearchFlightService {
   def fromClients(clients: List[SearchFlightClient]): SearchFlightService =
     new SearchFlightService {
       def search(from: Airport, to: Airport, date: LocalDate): IO[SearchResult] =
-        ???
+        clients
+          .parTraverse(_.search(from, to, LocalDate.now()).handleErrorWith(_ => IO(List.empty[Flight]))(ec))(ec)
+          .map(fl => SearchResult(fl.flatten))
     }
 
   // 5. Refactor `fromClients` using `sequence` or `traverse` from the `IO` companion object.

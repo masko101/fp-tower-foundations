@@ -23,7 +23,7 @@ object ConcurrentExamples extends App {
   val parTwo       = streamA.parZip(streamB)(ec)
   lazy val parMany = List(streamA, streamB, streamC, streamD, streamE, streamF).parSequence(ec)
 
-  parTwo.unsafeRun()
+  parMany.unsafeRun()
 
   // Print "Task $taskName 0"
   // sleep $duration
@@ -32,7 +32,5 @@ object ConcurrentExamples extends App {
   // ...
   // repeat $iteration times
   def stream(taskName: String, iteration: Int, duration: FiniteDuration) =
-    List.range(0, iteration).traverse { n =>
-      IO.debug(s"Task $taskName $n") andThen IO.sleep(duration)
-    }
+    List.range(0, iteration).traverse { n => IO.debug(s"Task $taskName $n").andThen(IO.sleep(duration)) }
 }
