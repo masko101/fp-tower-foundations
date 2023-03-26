@@ -90,7 +90,7 @@ object OptionExercises {
 //    else
 //      None
 //  }
-    users.traverse(_.email)
+    traverse(users)(_.email)
 
   // 5. If all options are defined (`Some`), `sequence` extracts all the values in a List.
   // If one or more options are None, `sequence` returns None.

@@ -1,7 +1,6 @@
 package exercises.errorhandling.either
 
-import exercises.errorhandling.either.EitherExercises2.CountryError._
-import exercises.errorhandling.either.EitherExercises2.UsernameError._
+import exercises.errorhandling.either.EitherExercises2.ValidationError._
 
 object EitherExercises2 {
 
@@ -28,7 +27,7 @@ object EitherExercises2 {
   // validateCountry("FRA") == Right(France)
   // validateCountry("UK")  == Left(InvalidFormat("UK"))
   // validateCountry("ARG") == Left(NotSupported("ARG")), ARG represents Argentina
-  def validateCountry(countryCode: String): Either[CountryError, Country] =
+  def validateCountry(countryCode: String): Either[ValidationError, Country] =
     "^[A-Z]{3}$".r
       .findFirstIn(countryCode)
       .toRight(InvalidFormat(countryCode))
@@ -62,27 +61,29 @@ object EitherExercises2 {
   // validateUsername("bob_2167")   == Right(Username("bob_2167"))
   // validateUsername("bo")         == Left(TooSmall(2))
   // validateUsername("foo!~23}AD") == Left(InvalidCharacters(List('!','~','}')))
-  def validateUsername(username: String): Either[UsernameError, Username] =
-    ???
+  def validateUsername(username: String): Either[ValidationError, Username] =
+    for {
+      _ <- checkUsernameSize(username)
+      _ <- checkUsernameCharacters(username)
+    } yield Username(username)
 
   // 5. Implement `validateUser` which verifies that both the username and the country
   // of residence are correct according to `validateUsername` and `validateCountry`.
   // What should be the return type of `validateUser`?
   // validateUser("bob_2167", "FRA") --> Success User(Username("bob_2167"), France)
   // validateUser("bo", "FRA")       --> Failure
-  def validateUser(usernameStr: String, countryStr: String) = // Either[???, User]
-    ???
+  def validateUser(usernameStr: String, countryStr: String): Either[ValidationError, User] = // Either[???, User]
+    for {
+      userName <- validateUsername(usernameStr)
+      country  <- validateCountry(countryStr)
+    } yield User(userName, country)
 
-  sealed trait CountryError
-  object CountryError {
-    case class InvalidFormat(country: String) extends CountryError
-    case class NotSupported(country: String)  extends CountryError
-  }
-
-  sealed trait UsernameError
-  object UsernameError {
-    case class TooSmall(inputLength: Int)          extends UsernameError
-    case class InvalidCharacters(char: List[Char]) extends UsernameError
+  sealed trait ValidationError
+  object ValidationError {
+    case class InvalidFormat(country: String)      extends ValidationError
+    case class NotSupported(country: String)       extends ValidationError
+    case class TooSmall(inputLength: Int)          extends ValidationError
+    case class InvalidCharacters(char: List[Char]) extends ValidationError
   }
 
 }
