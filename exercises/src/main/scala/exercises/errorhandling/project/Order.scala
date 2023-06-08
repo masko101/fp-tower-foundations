@@ -1,5 +1,6 @@
 package exercises.errorhandling.project
 
+import exercises.errorhandling.project.Order.{Checkout, Deliver, Draft, Submit}
 import exercises.errorhandling.project.OrderError._
 
 import java.time.{Duration, Instant}
@@ -20,20 +21,26 @@ case class Order(
   // Note: We don't verify if the `Item` is already in the basket.
   def addItem(item: Item): Either[OrderError, Order] =
     status match {
-      case "Draft" | "Checkout" => Right(copy(status = "Draft", basket = basket :+ item))
-      case _                    => Left(InvalidStatus(status))
+      case Draft | Checkout => Right(copy(status = Draft, basket = basket :+ item))
+      case _                => Left(InvalidStatus(status))
     }
 
   // 1. Implement `checkout` which attempts to move the `Order` to "Checkout" status.
   // `checkout` requires the order to be in the "Draft" status, otherwise it returns an `InvalidStatus` error.
   // `checkout` requires the order to contain at least one item, otherwise it returns an `EmptyBasket` error.
-  def checkout: Either[OrderError, Order] =
-    ???
+  def checkout: Either[OrderError, Order] = {
+    if (status != Draft)
+      Left(OrderError.InvalidStatus(status))
+    else if (basket.isEmpty)
+      Left(OrderError.EmptyBasket)
+    else
+      Right(this.copy(status = Checkout))
+  }
 
   def updateDeliveryAddress(address: Address): Either[OrderError, Order] =
     status match {
-      case "Checkout" => Right(copy(deliveryAddress = Some(address)))
-      case _          => Left(InvalidStatus(status))
+      case Checkout => Right(copy(deliveryAddress = Some(address)))
+      case _        => Left(InvalidStatus(status))
     }
 
   // 2. Implement `submit` which attempts to move the `Order` to "Submitted" status.
@@ -42,7 +49,18 @@ case class Order(
   // have the field `submittedAt` defined.
   // Note: You may need to extend `OrderError`
   def submit(now: Instant): Either[OrderError, Order] =
-    ???
+    status match {
+      case Checkout =>
+        deliveryAddress match {
+          case Some(_) =>
+            if (basket.isEmpty)
+              Left[OrderError, Order](OrderError.EmptyBasket)
+            else
+              Right[OrderError, Order](copy(status = Submit, submittedAt = Some(now)))
+          case None => Left[OrderError, Order](OrderError.MissingDeliveryAddress)
+        }
+      case status => Left[OrderError, Order](OrderError.InvalidStatus(status))
+    }
 
   // 3. Implement `deliver` which attempts to move the `Order` to "Delivered" status.
   // `deliver` requires the order to be in the "Submitted" status.
@@ -52,15 +70,27 @@ case class Order(
   // between `submittedAt` and `deliveredAt`).
   // Note: You may need to extend `OrderError`
   def deliver(now: Instant): Either[OrderError, (Order, Duration)] =
-    ???
+    (status, submittedAt) match {
+      case (Submit, Some(submittedAt)) =>
+        val deliveryDuration = Duration.between(submittedAt, now)
+        Right((copy(status = Deliver, deliveredAt = Some(now)), deliveryDuration))
+      case (status, _) =>
+        Left(OrderError.InvalidStatus(status))
+    }
 }
 
 object Order {
+
+  val Draft    = "Draft"
+  val Checkout = "Checkout"
+  val Submit   = "Submit"
+  val Deliver  = "Deliver"
+
   // Creates an empty draft order.
   def empty(id: String, now: Instant): Order =
     Order(
       id = id,
-      status = "Draft",
+      status = Draft,
       basket = Nil,
       deliveryAddress = None,
       createdAt = now,
